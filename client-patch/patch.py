@@ -97,7 +97,7 @@ dashboard_vm.write_text(text, encoding="utf-8")
 
 dashboard_screen = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt"
 text = dashboard_screen.read_text(encoding="utf-8")
-if "contentDescription = "تازه‌سازی سرورها"" not in text:
+if 'contentDescription = "تازه‌سازی سرورها"' not in text:
     text = text.replace(
         "import androidx.compose.material.icons.filled.MoreVert\n",
         "import androidx.compose.material.icons.filled.MoreVert\nimport androidx.compose.material.icons.filled.Refresh\n",
