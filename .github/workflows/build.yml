@@ -110,6 +110,20 @@ jobs:
           TAG="v1.0.${GITHUB_RUN_NUMBER}-candidate"
           gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk             --title "AmirVPN $TAG"             --notes "APK build verified by Gradle. Runtime emulator validation runs after packaging."
 
+      - name: Verify shared sync endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_URL="https://api.jsonstorage.net/v1/json/amirvpn-core-9d8c1b6e/servers-4f7a2c91"
+          curl -fsSL --retry 3 "$SYNC_URL" -o /tmp/amirvpn-sync.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("/tmp/amirvpn-sync.json").read_text())
+          assert isinstance(data, dict), "sync endpoint must return a JSON object"
+          print("Shared sync endpoint reachable; JSON object returned.")
+          PY
+
       - name: Start Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
