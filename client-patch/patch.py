@@ -35,7 +35,7 @@ text = app.read_text(encoding="utf-8")
 if "AmirBootstrap.ensure()" not in text:
     text = text.replace(
         "        GlobalScope.launch(Dispatchers.IO) {",
-        "        GlobalScope.launch(Dispatchers.IO) {\n            Settings.dataStore.initialize()",
+        "        GlobalScope.launch(Dispatchers.IO) {",
         1,
     )
     text = text.replace(
