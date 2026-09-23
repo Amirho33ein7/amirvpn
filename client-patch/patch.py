@@ -32,10 +32,25 @@ theme.write_text(text, encoding="utf-8")
 
 app = root / "app/src/main/java/io/nekohasekai/sfa/Application.kt"
 text = app.read_text(encoding="utf-8")
-needle = "Settings.dataStore.initialize()"
 if "AmirBootstrap.ensure()" not in text:
-    text = text.replace(needle, needle + "\n            AmirBootstrap.ensure()")
+    text = text.replace(
+        "        GlobalScope.launch(Dispatchers.IO) {",
+        "        GlobalScope.launch(Dispatchers.IO) {\n            Settings.dataStore.initialize()",
+        1,
+    )
+    text = text.replace(
+        "            initialize(baseDir, workingDir, tempDir)\n            UpdateProfileWork.reconfigureUpdater()",
+        "            initialize(baseDir, workingDir, tempDir)\n            AmirBootstrap.ensure()\n            UpdateProfileWork.reconfigureUpdater()",
+        1,
+    )
 app.write_text(text, encoding="utf-8")
+
+build = root / "app/build.gradle.kts"
+text = build.read_text(encoding="utf-8")
+text = text.replace("compileSdk = 37", "compileSdk = 35")
+text = text.replace("    compileSdkMinor = 1\n", "")
+text = text.replace("targetSdk = 37", "targetSdk = 35")
+build.write_text(text, encoding="utf-8")
 
 dst = root / "app/src/main/java/io/nekohasekai/sfa/AmirBootstrap.kt"
 dst.write_text(Path("client-patch/AmirBootstrap.kt").read_text(encoding="utf-8"), encoding="utf-8")
