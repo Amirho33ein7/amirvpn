@@ -29,8 +29,7 @@ jobs:
             BLOB_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["id"])' <<<"$RESPONSE")"
             test -n "$BLOB_ID"
             SYNC_URL="https://superjsonblob.com/api/jsonBlob/$BLOB_ID"
-            printf '%s
-' "$SYNC_URL" > sync-url.txt
+            printf '%s' "$SYNC_URL" > sync-url.txt
             gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/sync-url.txt"               -f message='Initialize AmirVPN shared sync backend [skip ci]'               -f content="$(base64 -w0 sync-url.txt)"               -f branch="$GITHUB_REF_NAME" >/dev/null
             echo "Created shared sync backend: $SYNC_URL"
           fi
