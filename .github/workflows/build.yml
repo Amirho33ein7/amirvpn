@@ -1,0 +1,123 @@
+name: Build AmirVPN
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout AmirVPN
+        uses: actions/checkout@v4
+
+      - name: Validate manager seed
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          p=Path("manager/app/src/main/assets/seed.txt")
+          raw=p.read_text(encoding="utf-8").strip()
+          if not raw:
+              raise SystemExit("seed.txt is empty")
+          decoded=base64.b64decode(raw, validate=False).decode("utf-8")
+          links=[x.strip() for x in decoded.splitlines() if "://" in x]
+          print(f"Decoded share links: {len(links)}")
+          if not links:
+              raise SystemExit("No share links found")
+          bad=[x for x in links if not (x.startswith("vless://") or x.startswith("trojan://"))]
+          if bad:
+              raise SystemExit(f"Unsupported share links: {len(bad)}")
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;35.0.0" "ndk;28.0.13004108" "system-images;android-35;google_apis;x86_64"
+
+      - name: Clone stable sing-box Android client
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v1.14.1 https://github.com/SagerNet/sing-box-for-android.git client
+
+      - name: Download matching libbox AAR
+        shell: bash
+        run: |
+          mkdir -p client/app/libs
+          curl -fL --retry 3 -o client/app/libs/libbox.aar             https://github.com/singbox-android/libbox/releases/download/1.14.1/libbox.aar
+          test -s client/app/libs/libbox.aar
+
+      - name: Patch client for AmirVPN
+        shell: bash
+        run: |
+          python3 client-patch/patch.py
+
+      - name: Build Manager APK
+        shell: bash
+        run: |
+          client/gradlew -p manager :app:assembleDebug --no-daemon
+          cp manager/app/build/outputs/apk/debug/app-debug.apk AmirVPN-Manager.apk
+
+      - name: Build Client APK
+        shell: bash
+        run: |
+          client/gradlew -p client :app:assembleOtherDebug --no-daemon
+          APK="$(find client/app/build/outputs/apk -type f -name '*universal*debug.apk' | head -n 1)"
+          if [ -z "$APK" ]; then
+            APK="$(find client/app/build/outputs/apk -type f -name '*other*debug.apk' | head -n 1)"
+          fi
+          test -n "$APK"
+          cp "$APK" AmirVPN-Client.apk
+          ls -lh AmirVPN-Client.apk AmirVPN-Manager.apk
+
+      - name: Start Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -no-audio -no-boot-anim
+          disable-animations: true
+          script: |
+            adb install -r AmirVPN-Manager.apk
+            adb install -r AmirVPN-Client.apk
+            adb shell monkey -p com.amirvpn.manager 1
+            sleep 5
+            adb shell am force-stop com.amirvpn.manager
+            adb shell monkey -p io.nekohasekai.sfa 1
+            sleep 8
+            adb shell dumpsys package com.amirvpn.manager | grep -q "versionName=1.0.0"
+            adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: amirvpn-apks
+          path: |
+            AmirVPN-Client.apk
+            AmirVPN-Manager.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="v1.0.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk             --title "AmirVPN $TAG"             --notes "Automated tested Android builds of AmirVPN client and manager."
