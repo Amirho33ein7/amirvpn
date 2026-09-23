@@ -57,8 +57,23 @@ text = text.replace("    compileSdkMinor = 1\n", "    compileSdkMinor = 1\n")
 text = text.replace("targetSdk = 37", "targetSdk = 35")
 build.write_text(text, encoding="utf-8")
 
+sync_url_path = Path("sync-url.txt")
+sync_url = sync_url_path.read_text(encoding="utf-8").strip() if sync_url_path.exists() else ""
+if not sync_url:
+    raise SystemExit("sync-url.txt is empty")
+
 dst = root / "app/src/main/java/io/nekohasekai/sfa/AmirBootstrap.kt"
-dst.write_text(Path("client-patch/AmirBootstrap.kt").read_text(encoding="utf-8"), encoding="utf-8")
+bootstrap_text = Path("client-patch/AmirBootstrap.kt").read_text(encoding="utf-8")
+import re
+bootstrap_text, count = re.subn(
+    r'const val REMOTE_URL = ".*?"',
+    f'const val REMOTE_URL = "{sync_url}"',
+    bootstrap_text,
+    count=1,
+)
+if count != 1:
+    raise SystemExit("AmirBootstrap sync URL constant not found")
+dst.write_text(bootstrap_text, encoding="utf-8")
 
 
 # Dashboard sync: allow users to force-refresh the shared remote profile from Home.
