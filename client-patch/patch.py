@@ -8,6 +8,10 @@ text = text.replace(
     '<string name="app_name" translatable="false">sing-box</string>',
     '<string name="app_name" translatable="false">AmirVPN</string>',
 )
+text = text.replace(
+    '<string name="title_dashboard">Dashboard</string>',
+    '<string name="title_dashboard">Home</string>',
+)
 strings.write_text(text, encoding="utf-8")
 
 color = root / "app/src/main/java/io/nekohasekai/sfa/compose/theme/Color.kt"
@@ -60,6 +64,38 @@ dst.write_text(Path("client-patch/AmirBootstrap.kt").read_text(encoding="utf-8")
 # Dashboard sync: allow users to force-refresh the shared remote profile from Home.
 dashboard_vm = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt"
 text = dashboard_vm.read_text(encoding="utf-8")
+if "var profiles = ProfileManager.list()" not in text:
+    text = text.replace(
+        """                val profiles = ProfileManager.list()
+                val selectedId = Settings.selectedProfile
+""",
+        """                var profiles = ProfileManager.list()
+                if (profiles.none { it.name == "AmirVPN" }) {
+                    AmirBootstrap.ensure()
+                    profiles = ProfileManager.list()
+                }
+                val selectedId = Settings.selectedProfile
+""",
+        1,
+    )
+
+if "Settings.selectedProfile = profileId" in text and "RequestStartService" not in text:
+    text = text.replace(
+        """                Settings.selectedProfile = profileId
+
+                // Check if service is running
+""",
+        """                Settings.selectedProfile = profileId
+
+                if (_serviceStatus.value == Status.Stopped) {
+                    sendGlobalEvent(UiEvent.RequestStartService)
+                }
+
+                // Check if service is running
+""",
+        1,
+    )
+
 if "fun refreshRemoteProfiles()" not in text:
     text = text.replace(
         "import io.nekohasekai.sfa.database.Profile\n",
@@ -97,6 +133,22 @@ dashboard_vm.write_text(text, encoding="utf-8")
 
 dashboard_screen = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt"
 text = dashboard_screen.read_text(encoding="utf-8")
+if "LaunchedEffect(Unit)" not in text:
+    text = text.replace(
+        "import androidx.compose.runtime.Composable\n",
+        "import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.LaunchedEffect\n",
+        1,
+    )
+    text = text.replace(
+        "    val uiState by viewModel.uiState.collectAsState()\n",
+        """    val uiState by viewModel.uiState.collectAsState()
+    LaunchedEffect(Unit) {
+        viewModel.refreshRemoteProfiles()
+    }
+""",
+        1,
+    )
+
 if 'contentDescription = "تازه‌سازی سرورها"' not in text:
     text = text.replace(
         "import androidx.compose.material.icons.filled.MoreVert\n",
