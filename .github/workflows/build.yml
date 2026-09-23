@@ -56,8 +56,10 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-37.1" "build-tools;37.0.0" "ndk;28.0.13004108" "system-images;android-35;google_apis;x86_64"
-          "$SDKMANAGER" --list | grep -E '^platforms;android-37[[:space:]]' || true
+          "$SDKMANAGER" "platforms;android-37.1" "build-tools;37.0.0" "ndk;28.0.13004108"
+          test -d "$ANDROID_HOME/platforms/android-37.1"
+          test -d "$ANDROID_HOME/build-tools/37.0.0"
+          test -d "$ANDROID_HOME/ndk/28.0.13004108"
 
       - name: Clone stable sing-box Android client
         shell: bash
