@@ -347,9 +347,32 @@ class MainActivity : Activity() {
         val code = conn.responseCode
         if (code !in 200..299) {
             val err = conn.errorStream?.bufferedReader()?.readText().orEmpty()
+            conn.disconnect()
             throw IllegalStateException("HTTP $code ${err.take(120)}")
         }
         conn.disconnect()
+
+        // Verify the exact remote endpoint now returns the configuration we published.
+        val verify = (URL(Sync.URL).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 15000
+        }
+        val verifyCode = verify.responseCode
+        if (verifyCode !in 200..299) {
+            val err = verify.errorStream?.bufferedReader()?.readText().orEmpty()
+            verify.disconnect()
+            throw IllegalStateException("انتشار انجام شد ولی دریافت مجدد ناموفق بود: HTTP $verifyCode ${err.take(120)}")
+        }
+        val remoteContent = verify.inputStream.bufferedReader().use { it.readText() }
+        verify.disconnect()
+
+        val remoteJson = runCatching { JSONObject(remoteContent) }
+            .getOrElse { throw IllegalStateException("داده منتشرشده JSON معتبر برنگرداند") }
+        if (!JSONObject(config.toString()).similar(remoteJson)) {
+            throw IllegalStateException("سرور نسخه جدید را برنگرداند؛ Sync تأیید نشد")
+        }
+        Libbox.checkConfig(remoteContent)
     }
 
     private fun endpoint(link: String): String = runCatching {
@@ -370,7 +393,8 @@ class MainActivity : Activity() {
             val tags = JSONArray()
 
             active.forEachIndexed { index, n ->
-                val parsed = parseShare(n.share) ?: return@forEachIndexed
+                val parsed = parseShare(n.share)
+                    ?: throw IllegalArgumentException("کانفیگ ${n.name} قابل تبدیل به sing-box نیست")
                 val tag = "node-${index + 1}"
                 parsed.put("tag", tag)
                 outbounds.put(parsed)
