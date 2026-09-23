@@ -60,6 +60,7 @@ jobs:
           test -d "$ANDROID_HOME/platforms/android-37.1"
           test -d "$ANDROID_HOME/build-tools/37.0.0"
           test -d "$ANDROID_HOME/ndk/28.0.13004108"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
 
       - name: Clone stable sing-box Android client
         shell: bash
