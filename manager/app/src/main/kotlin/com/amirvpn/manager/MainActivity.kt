@@ -74,7 +74,10 @@ class MainActivity : Activity() {
         }
         actions.addView(button("＋ افزودن", Color.rgb(22, 31, 48)) { showAddDialog() },
             LinearLayout.LayoutParams(0, dp(46), 1f))
-        actions.addView(Space(this), LinearLayout.LayoutParams(dp(8), dp(1)))
+        actions.addView(Space(this), LinearLayout.LayoutParams(dp(6), dp(1)))
+        actions.addView(button("⇩ ورود گروهی", Color.rgb(15, 57, 103)) { importBundleDialog() },
+            LinearLayout.LayoutParams(0, dp(46), 1.25f))
+        actions.addView(Space(this), LinearLayout.LayoutParams(dp(6), dp(1)))
         actions.addView(button("⟳ انتشار", Color.rgb(20, 76, 145)) { publish() },
             LinearLayout.LayoutParams(0, dp(46), 1f))
         root.addView(actions)
@@ -181,7 +184,7 @@ class MainActivity : Activity() {
             setHintTextColor(Color.GRAY)
         }
         val link = EditText(this).apply {
-            hint = "VLESS / Trojan / VMess share link"
+            hint = "VLESS / Trojan share link"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
@@ -205,6 +208,61 @@ class MainActivity : Activity() {
                     toast("لینک معتبر وارد کن")
                 }
             }.show()
+    }
+
+    private fun importBundleDialog() {
+        val input = EditText(this).apply {
+            hint = "لینک‌های VLESS/Trojan یا Base64"
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            minLines = 10
+            gravity = Gravity.TOP
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("ورود گروهی کانفیگ‌ها")
+            .setMessage("می‌توانی همان Base64 چندخطی یا چند لینک را یکجا وارد کنی.")
+            .setView(input)
+            .setNegativeButton("لغو", null)
+            .setPositiveButton("وارد کردن") { _, _ ->
+                try {
+                    val shares = decodeImport(input.text.toString())
+                    if (shares.isEmpty()) throw IllegalArgumentException("هیچ لینک VLESS/Trojan پیدا نشد")
+                    val existing = nodes.mapTo(mutableSetOf()) { it.share }
+                    var added = 0
+                    shares.distinct().forEach { share ->
+                        if (existing.add(share)) {
+                            nodes.add(Node(System.currentTimeMillis() + added, deriveName(share), share, true))
+                            added++
+                        }
+                    }
+                    save()
+                    render()
+                    publish()
+                    toast("${added} کانفیگ وارد شد")
+                } catch (e: Exception) {
+                    toast("خطا در ورود: ${e.message ?: "داده نامعتبر"}")
+                }
+            }
+            .show()
+    }
+
+    private fun decodeImport(rawInput: String): List<String> {
+        val raw = rawInput.trim()
+        if (raw.isBlank()) return emptyList()
+
+        fun filterLines(text: String): List<String> =
+            text.lines()
+                .map { it.trim() }
+                .filter { it.startsWith("vless://", true) || it.startsWith("trojan://", true) }
+
+        val direct = filterLines(raw)
+        if (direct.isNotEmpty()) return direct
+
+        val compact = raw.replace("\\s".toRegex(), "")
+        val decoded = Base64.decode(compact, Base64.DEFAULT).toString(StandardCharsets.UTF_8)
+        return filterLines(decoded)
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
