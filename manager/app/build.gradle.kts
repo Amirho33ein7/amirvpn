@@ -30,3 +30,8 @@ android {
         jvmTarget = "17"
     }
 }
+
+
+dependencies {
+    implementation(files("libs/libbox.aar"))
+}
