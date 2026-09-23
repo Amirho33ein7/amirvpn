@@ -1,6 +1,7 @@
 package com.amirvpn.manager
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
 import android.text.InputType
 import android.graphics.Color
@@ -13,7 +14,7 @@ import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
-import java.util.Base64
+import android.util.Base64
 import kotlin.concurrent.thread
 
 data class Node(
@@ -216,7 +217,7 @@ class MainActivity : Activity() {
         }
         if (raw.isBlank()) return
         val decoded = runCatching {
-            Base64.getDecoder().decode(raw.replace("\\s".toRegex(), ""))
+            Base64.decode(raw.replace("\\s".toRegex(), ""), Base64.DEFAULT)
                 .toString(StandardCharsets.UTF_8)
         }.getOrNull() ?: return
         decoded.lines().map { it.trim() }.filter { it.contains("://") }.forEachIndexed { i, share ->
