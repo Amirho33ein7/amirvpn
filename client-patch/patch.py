@@ -47,7 +47,7 @@ app.write_text(text, encoding="utf-8")
 
 build = root / "app/build.gradle.kts"
 text = build.read_text(encoding="utf-8")
-text = text.replace("compileSdk = 37", "compileSdk = 35")
+text = text.replace("compileSdk = 37", "compileSdk = 37")
 text = text.replace("    compileSdkMinor = 1\n", "")
 text = text.replace("targetSdk = 37", "targetSdk = 35")
 build.write_text(text, encoding="utf-8")
