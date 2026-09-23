@@ -436,7 +436,7 @@ class MainActivity : Activity() {
 
         private fun parseShare(link: String): JSONObject? = runCatching {
             val u = URI(link.trim())
-            val scheme = u.scheme.lowercase()
+            val scheme = u.scheme?.lowercase() ?: return null
             if (scheme != "vless" && scheme != "trojan") return null
 
             val out = JSONObject()
@@ -455,41 +455,94 @@ class MainActivity : Activity() {
                 }
 
             if (scheme == "vless") {
-                out.put("uuid", info)
+                out.put("uuid", dec(info))
+                query["flow"]?.takeIf { it.isNotBlank() }?.let { out.put("flow", it) }
             } else {
                 out.put("password", dec(info))
             }
 
-            if (query["type"]?.lowercase() == "ws") {
-                out.put(
-                    "transport",
-                    JSONObject()
-                        .put("type", "ws")
-                        .put("path", query["path"] ?: "/")
-                        .put(
-                            "headers",
-                            JSONObject().put("Host", query["host"] ?: (u.host ?: ""))
-                        )
-                )
+            query["network"]?.lowercase()?.let {
+                if (it == "tcp" || it == "udp") out.put("network", it)
             }
 
-            if (query["security"]?.lowercase() == "tls") {
+            when (query["type"]?.lowercase()) {
+                "ws" -> {
+                    val headers = JSONObject()
+                    query["host"]?.takeIf { it.isNotBlank() }?.let { headers.put("Host", it) }
+                    out.put(
+                        "transport",
+                        JSONObject()
+                            .put("type", "ws")
+                            .put("path", query["path"] ?: "/")
+                            .put("headers", headers)
+                    )
+                }
+                "grpc" -> {
+                    out.put(
+                        "transport",
+                        JSONObject()
+                            .put("type", "grpc")
+                            .put("service_name", query["serviceName"] ?: query["service_name"] ?: "")
+                    )
+                }
+                "httpupgrade" -> {
+                    val headers = JSONObject()
+                    query["host"]?.takeIf { it.isNotBlank() }?.let { headers.put("Host", it) }
+                    out.put(
+                        "transport",
+                        JSONObject()
+                            .put("type", "httpupgrade")
+                            .put("host", query["host"] ?: "")
+                            .put("path", query["path"] ?: "/")
+                            .put("headers", headers)
+                    )
+                }
+                "http" -> {
+                    val hosts = JSONArray()
+                    query["host"].orEmpty().split(',').map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .forEach { hosts.put(it) }
+                    val transport = JSONObject().put("type", "http").put("path", query["path"] ?: "/")
+                    if (hosts.length() > 0) transport.put("host", hosts)
+                    out.put("transport", transport)
+                }
+                "quic" -> out.put("transport", JSONObject().put("type", "quic"))
+            }
+
+            val security = query["security"]?.lowercase()
+            if (security == "tls" || security == "reality") {
                 val tls = JSONObject().put("enabled", true)
-                val sni = query["sni"] ?: query["host"] ?: u.host
+                val sni = query["sni"] ?: query["serverName"] ?: query["host"] ?: u.host
                 if (!sni.isNullOrBlank()) tls.put("server_name", sni)
-                query["fp"]?.let {
+
+                query["fp"]?.takeIf { it.isNotBlank() }?.let {
                     tls.put(
                         "utls",
                         JSONObject().put("enabled", true).put("fingerprint", it)
                     )
                 }
+
                 query["alpn"]?.takeIf { it.isNotBlank() }?.let {
                     val alpn = JSONArray()
                     it.split(',').forEach { a -> if (a.isNotBlank()) alpn.put(a.trim()) }
-                    tls.put("alpn", alpn)
+                    if (alpn.length() > 0) tls.put("alpn", alpn)
                 }
+
+                query["allowInsecure"]?.lowercase()?.let {
+                    if (it == "true" || it == "1") tls.put("insecure", true)
+                }
+
+                if (security == "reality") {
+                    val reality = JSONObject().put("enabled", true)
+                    query["pbk"]?.takeIf { it.isNotBlank() }?.let { reality.put("public_key", it) }
+                    query["sid"]?.takeIf { it.isNotBlank() }?.let { reality.put("short_id", it) }
+                    tls.put("reality", reality)
+                }
+
                 out.put("tls", tls)
             }
+
+            if (out.optString("server").isBlank()) return null
             out
         }.getOrNull()
 
