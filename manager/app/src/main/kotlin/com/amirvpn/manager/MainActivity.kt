@@ -216,20 +216,37 @@ class MainActivity : Activity() {
             hint = "لینک‌های VLESS/Trojan یا Base64"
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
-            minLines = 10
+            minLines = 6
+            maxLines = 12
             gravity = Gravity.TOP
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            setPadding(dp(10), dp(10), dp(10), dp(10))
         }
 
-        AlertDialog.Builder(this)
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(input, FrameLayout.LayoutParams(-1, dp(220)))
+        }
+
+        val dialog = AlertDialog.Builder(this)
             .setTitle("ورود گروهی کانفیگ‌ها")
-            .setMessage("می‌توانی همان Base64 چندخطی یا چند لینک را یکجا وارد کنی.")
-            .setView(input)
+            .setMessage("Base64 چندخطی یا چند لینک را یکجا وارد کن.")
+            .setView(scroll)
             .setNegativeButton("لغو", null)
-            .setPositiveButton("وارد کردن") { _, _ ->
+            .setPositiveButton("وارد کردن", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.window?.setSoftInputMode(
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            )
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 try {
                     val shares = decodeImport(input.text.toString())
-                    if (shares.isEmpty()) throw IllegalArgumentException("هیچ لینک VLESS/Trojan پیدا نشد")
+                    if (shares.isEmpty()) {
+                        throw IllegalArgumentException("هیچ لینک VLESS/Trojan پیدا نشد")
+                    }
+
                     val existing = nodes.mapTo(mutableSetOf()) { it.share }
                     var added = 0
                     shares.distinct().forEach { share ->
@@ -238,15 +255,18 @@ class MainActivity : Activity() {
                             added++
                         }
                     }
+
                     save()
                     render()
                     publish()
                     toast("${added} کانفیگ وارد شد")
+                    dialog.dismiss()
                 } catch (e: Exception) {
                     toast("خطا در ورود: ${e.message ?: "داده نامعتبر"}")
                 }
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun decodeImport(rawInput: String): List<String> {
