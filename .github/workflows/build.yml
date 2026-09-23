@@ -101,6 +101,15 @@ jobs:
           cp "$APK" AmirVPN-Client.apk
           ls -lh AmirVPN-Client.apk AmirVPN-Manager.apk
 
+      - name: Publish build candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v1.0.${GITHUB_RUN_NUMBER}-candidate"
+          gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk             --title "AmirVPN $TAG"             --notes "APK build verified by Gradle. Runtime emulator validation runs after packaging."
+
       - name: Start Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
