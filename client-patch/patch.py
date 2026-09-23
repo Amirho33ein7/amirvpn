@@ -55,3 +55,67 @@ build.write_text(text, encoding="utf-8")
 
 dst = root / "app/src/main/java/io/nekohasekai/sfa/AmirBootstrap.kt"
 dst.write_text(Path("client-patch/AmirBootstrap.kt").read_text(encoding="utf-8"), encoding="utf-8")
+
+
+# Dashboard sync: allow users to force-refresh the shared remote profile from Home.
+dashboard_vm = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt"
+text = dashboard_vm.read_text(encoding="utf-8")
+if "fun refreshRemoteProfiles()" not in text:
+    text = text.replace(
+        "import io.nekohasekai.sfa.database.Profile\n",
+        "import io.nekohasekai.sfa.AmirBootstrap\nimport io.nekohasekai.sfa.database.Profile\n",
+        1,
+    )
+    text = text.replace(
+        "    fun updateProfile(profile: Profile) {\n",
+        """    /**
+     * Refresh all remote profiles from the shared AmirVPN configuration endpoint.
+     * If the profile has not been created yet, bootstrap it first.
+     */
+    fun refreshRemoteProfiles() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val remotes = ProfileManager.list()
+                .filter { it.typed.type == TypedProfile.Type.Remote }
+
+            if (remotes.isEmpty()) {
+                AmirBootstrap.ensure()
+                loadProfiles()
+                return@launch
+            }
+
+            remotes.forEach { profile ->
+                updateProfile(profile)
+            }
+        }
+    }
+
+    fun updateProfile(profile: Profile) {
+""",
+        1,
+    )
+dashboard_vm.write_text(text, encoding="utf-8")
+
+dashboard_screen = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt"
+text = dashboard_screen.read_text(encoding="utf-8")
+if "contentDescription = "تازه‌سازی سرورها"" not in text:
+    text = text.replace(
+        "import androidx.compose.material.icons.filled.MoreVert\n",
+        "import androidx.compose.material.icons.filled.MoreVert\nimport androidx.compose.material.icons.filled.Refresh\n",
+        1,
+    )
+    text = text.replace(
+        "            actions = {\n                Box {\n",
+        """            actions = {
+                IconButton(onClick = { viewModel.refreshRemoteProfiles() }) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "تازه‌سازی سرورها",
+                    )
+                }
+                Box {
+""",
+        1,
+    )
+dashboard_screen.write_text(text, encoding="utf-8")
+
+print("Dashboard refresh patch ready")
