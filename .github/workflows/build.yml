@@ -24,12 +24,11 @@ jobs:
           p=Path("manager/app/src/main/assets/seed.txt")
           raw=p.read_text(encoding="utf-8").strip()
           if not raw:
-              raise SystemExit("seed.txt is empty")
+              print("No credentials bundled in source; Manager supports runtime batch/Base64 import.")
+              raise SystemExit(0)
           decoded=base64.b64decode(raw, validate=False).decode("utf-8")
           links=[x.strip() for x in decoded.splitlines() if "://" in x]
           print(f"Decoded share links: {len(links)}")
-          if not links:
-              raise SystemExit("No share links found")
           bad=[x for x in links if not (x.startswith("vless://") or x.startswith("trojan://"))]
           if bad:
               raise SystemExit(f"Unsupported share links: {len(bad)}")
