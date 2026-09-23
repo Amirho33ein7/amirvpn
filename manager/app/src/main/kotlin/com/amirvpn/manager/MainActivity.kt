@@ -15,6 +15,7 @@ import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import android.util.Base64
+import io.nekohasekai.libbox.Libbox
 import kotlin.concurrent.thread
 
 data class Node(
@@ -334,6 +335,7 @@ class MainActivity : Activity() {
 
     private fun publishBlocking() {
         val config = ConfigBuilder.build(nodes.filter { it.enabled })
+        Libbox.checkConfig(config.toString())
         val conn = (URL(Sync.URL).openConnection() as HttpURLConnection).apply {
             requestMethod = "PUT"
             connectTimeout = 15000
@@ -403,16 +405,17 @@ class MainActivity : Activity() {
                         .put("tag", "tun-in")
                         .put("address", JSONArray().put("172.19.0.1/30"))
                         .put("auto_route", true)
-                        .put("strict_route", true)
                         .put("stack", "mixed")
                 )
             )
-            val selector = JSONObject()
-                .put("type", "selector")
-                .put("tag", "proxy")
-                .put("outbounds", tags)
-            if (tags.length() > 0) selector.put("default", tags.optString(0))
-            outbounds.put(selector)
+            if (tags.length() > 0) {
+                val selector = JSONObject()
+                    .put("type", "selector")
+                    .put("tag", "proxy")
+                    .put("outbounds", tags)
+                    .put("default", tags.optString(0))
+                outbounds.put(selector)
+            }
             root.put("outbounds", outbounds)
             root.put(
                 "route",
