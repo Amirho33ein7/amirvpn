@@ -52,7 +52,9 @@ jobs:
       - name: Clone stable sing-box Android client
         shell: bash
         run: |
-          git clone --depth 1 --branch v1.14.1 https://github.com/SagerNet/sing-box-for-android.git client
+          git clone --depth 1 https://github.com/SagerNet/sing-box-for-android.git client
+          git -C client fetch --depth 1 origin a3668ae6e4bbcb3ceff8461d0cac55d79edf504f
+          git -C client checkout --detach a3668ae6e4bbcb3ceff8461d0cac55d79edf504f
 
       - name: Download matching libbox AAR
         shell: bash
@@ -60,6 +62,8 @@ jobs:
           mkdir -p client/app/libs
           curl -fL --retry 3 -o client/app/libs/libbox.aar             https://github.com/singbox-android/libbox/releases/download/1.14.1/libbox.aar
           test -s client/app/libs/libbox.aar
+          mkdir -p manager/app/libs
+          cp client/app/libs/libbox.aar manager/app/libs/libbox.aar
 
       - name: Patch client for AmirVPN
         shell: bash
