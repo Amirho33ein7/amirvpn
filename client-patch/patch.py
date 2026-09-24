@@ -52,6 +52,12 @@ app.write_text(text, encoding="utf-8")
 # Disable upstream first-launch / automatic application update checking.
 main_activity = root / "app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"
 text = main_activity.read_text(encoding="utf-8")
+if "import io.nekohasekai.sfa.AmirBootstrap" not in text:
+    text = text.replace(
+        "import io.nekohasekai.sfa.Application",
+        "import io.nekohasekai.sfa.AmirBootstrap\nimport io.nekohasekai.sfa.Application",
+        1,
+    )
 text = text.replace(
     """        connection.reconnect()
         RemoteControlManager.restore()
