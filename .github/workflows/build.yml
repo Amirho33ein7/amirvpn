@@ -15,66 +15,28 @@ jobs:
       - name: Checkout AmirVPN
         uses: actions/checkout@v4
 
-      - name: Ensure shared sync backend
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Validate bundled servers
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s sync-url.txt ]; then
-            SYNC_URL="$(tr -d '[:space:]' < sync-url.txt)"
-          else
-            SEED='{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}'
-            RESPONSE="$(curl -fsSL --retry 3 -X POST https://superjsonblob.com/api/jsonBlob               -H 'Content-Type: application/json'               -H 'Accept: application/json'               --data "$SEED")"
-            BLOB_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["id"])' <<<"$RESPONSE")"
-            test -n "$BLOB_ID"
-            SYNC_URL="https://superjsonblob.com/api/jsonBlob/$BLOB_ID"
-            printf '%s' "$SYNC_URL" > sync-url.txt
-            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/sync-url.txt"               -f message='Initialize AmirVPN shared sync backend [skip ci]'               -f content="$(base64 -w0 sync-url.txt)"               -f branch="$GITHUB_REF_NAME" >/dev/null
-            echo "Created shared sync backend: $SYNC_URL"
-          fi
-
-          test -n "$SYNC_URL"
-          echo "SYNC_URL=$SYNC_URL" >> "$GITHUB_ENV"
-
-          python3 - "$SYNC_URL" <<'PY'
-          import sys, re
-          from pathlib import Path
-          url = sys.argv[1]
-          path = Path("manager/app/src/main/kotlin/com/amirvpn/manager/MainActivity.kt")
-          text = path.read_text(encoding="utf-8")
-          text, count = re.subn(r'const val URL = ".*?"', f'const val URL = "{url}"', text, count=1)
-          if count != 1:
-              raise SystemExit("Manager sync URL constant not found")
-          path.write_text(text, encoding="utf-8")
-          PY
-
-          curl -fsSL --retry 3 "$SYNC_URL" -o /tmp/amirvpn-sync.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          data=json.loads(Path("/tmp/amirvpn-sync.json").read_text())
-          assert isinstance(data, dict)
-          print("Shared sync backend reachable.")
-          PY
-
-      - name: Validate manager seed
-        shell: bash
-        run: |
           python3 - <<'PY'
           import base64
           from pathlib import Path
-          p=Path("manager/app/src/main/assets/seed.txt")
-          raw=p.read_text(encoding="utf-8").strip()
-          if not raw:
-              print("No credentials bundled in source; Manager supports runtime batch/Base64 import.")
-              raise SystemExit(0)
-          decoded=base64.b64decode(raw, validate=False).decode("utf-8")
-          links=[x.strip() for x in decoded.splitlines() if "://" in x]
-          print(f"Decoded share links: {len(links)}")
-          bad=[x for x in links if not (x.startswith("vless://") or x.startswith("trojan://"))]
-          if bad:
-              raise SystemExit(f"Unsupported share links: {len(bad)}")
+
+          raw = Path("client-patch/amirs-servers.b64").read_text(encoding="utf-8")
+          decoded = base64.b64decode("".join(raw.split())).decode("utf-8")
+          links = [
+              line.strip()
+              for line in decoded.splitlines()
+              if line.strip().lower().startswith(("vless://", "trojan://"))
+          ]
+          if not links:
+              raise SystemExit("No bundled VPN servers")
+          if len(links) < 4:
+              raise SystemExit(f"Expected bundled server list, found only {len(links)} entries")
+          print(f"Bundled server links: {len(links)}")
+          for link in links:
+              print(link.split("?", 1)[0])
           PY
 
       - name: Set up Java
@@ -89,7 +51,7 @@ jobs:
           set -euo pipefail
           export ANDROID_HOME="/usr/local/lib/android/sdk"
           TMP="$(mktemp -d)"
-          curl -fsSL --retry 3             https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip             -o "$TMP/cmdline-tools.zip"
+          curl -fsSL --retry 3 https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip -o "$TMP/cmdline-tools.zip"
           echo "4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583  $TMP/cmdline-tools.zip" | sha256sum -c -
           rm -rf "$ANDROID_HOME/cmdline-tools/latest"
           mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
@@ -118,21 +80,15 @@ jobs:
           mkdir -p client/app/libs
           curl -fL --retry 3 -o client/app/libs/libbox.aar             https://github.com/singbox-android/libbox/releases/download/1.14.1/libbox.aar
           test -s client/app/libs/libbox.aar
-          mkdir -p manager/app/libs
-          cp client/app/libs/libbox.aar manager/app/libs/libbox.aar
 
-      - name: Patch client for AmirVPN
+      - name: Patch standalone AmirVPN
         shell: bash
         run: |
           python3 client-patch/patch.py
+          test -s client/app/src/main/assets/amirs-servers.b64
+          test -s client/app/src/main/java/io/nekohasekai/sfa/AmirBootstrap.kt
 
-      - name: Build Manager APK
-        shell: bash
-        run: |
-          client/gradlew -p manager :app:assembleDebug --no-daemon
-          cp manager/app/build/outputs/apk/debug/app-debug.apk AmirVPN-Manager.apk
-
-      - name: Build Client APK
+      - name: Build AmirVPN APK
         shell: bash
         run: |
           client/gradlew -p client :app:assembleOtherDebug --no-daemon
@@ -141,80 +97,45 @@ jobs:
             APK="$(find client/app/build/outputs/apk -type f -name '*other*debug.apk' | head -n 1)"
           fi
           test -n "$APK"
-          cp "$APK" AmirVPN-Client.apk
-          ls -lh AmirVPN-Client.apk AmirVPN-Manager.apk
+          cp "$APK" AmirVPN.apk
+          ls -lh AmirVPN.apk
 
-      - name: Verify shared sync endpoint
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${SYNC_URL:-}"
-          curl -fsSL --retry 3 "$SYNC_URL" -o /tmp/amirvpn-sync.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          data=json.loads(Path("/tmp/amirvpn-sync.json").read_text())
-          assert isinstance(data, dict), "sync endpoint must return a JSON object"
-          print("Shared sync endpoint reachable; JSON object returned.")
-          PY
-
-      - name: Verify isolated sync PUT/GET
-        shell: bash
-        run: |
-          set -euo pipefail
-          TEST_JSON='{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}'
-          RESPONSE="$(curl -fsSL --retry 3 -X POST https://superjsonblob.com/api/jsonBlob -H 'Content-Type: application/json' -H 'Accept: application/json' --data "$TEST_JSON")"
-          TEST_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["id"])' <<<"$RESPONSE")"
-          test -n "$TEST_ID"
-          TEST_URL="https://superjsonblob.com/api/jsonBlob/$TEST_ID"
-          curl -fsSL --retry 3 -X PUT "$TEST_URL" -H 'Content-Type: application/json; charset=utf-8' --data "$TEST_JSON" >/tmp/amirvpn-test-put-response.json
-          curl -fsSL --retry 3 "$TEST_URL" -o /tmp/amirvpn-test-readback.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          got=json.loads(Path("/tmp/amirvpn-test-readback.json").read_text())
-          expected={"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}
-          assert got == expected
-          print("Isolated sync PUT/GET round-trip passed; production sync was not modified.")
-          PY
-      - name: Start Android emulator and run integration smoke test
+      - name: Run Android integration smoke test
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager --install "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
-          echo no | avdmanager create avd --force --name amirvpn-test --package "system-images;android-35;google_apis;x86_64"
+          echo no | avdmanager create avd --force             --name amirvpn-test             --package "system-images;android-35;google_apis;x86_64"
           emulator -avd amirvpn-test -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect &
           EMU_PID=$!
           trap 'kill $EMU_PID 2>/dev/null || true' EXIT
+
           adb wait-for-device
           for i in $(seq 1 90); do
-            if adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; then break; fi
+            if adb shell getprop sys.boot_completed 2>/dev/null | tr -d '' | grep -q '^1$'; then
+              break
+            fi
             sleep 2
           done
-          adb shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1$'
-          adb install -r AmirVPN-Manager.apk
-          adb install -r AmirVPN-Client.apk
-          adb shell monkey -p com.amirvpn.manager 1
-          sleep 5
-          adb shell dumpsys package com.amirvpn.manager | grep -q "versionName=1.0.0"
-          adb shell am force-stop com.amirvpn.manager
+          adb shell getprop sys.boot_completed | tr -d '' | grep -q '^1$'
 
+          adb install -r AmirVPN.apk
           adb logcat -c
           adb shell monkey -p io.nekohasekai.sfa 1
-          sleep 10
-          adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
-          adb logcat -d | grep -q "Shared configuration"
+          sleep 12
+
+          adb dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
+          adb logcat -d | grep -q "Bundled servers installed"
 
           adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null
           adb shell cat /sdcard/amirvpn-ui.xml | grep -q "Home"
           adb shell cat /sdcard/amirvpn-ui.xml | grep -q "AmirVPN"
-      - name: Upload APK artifacts
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: amirvpn-apks
-          path: |
-            AmirVPN-Client.apk
-            AmirVPN-Manager.apk
+          name: amirvpn-apk
+          path: AmirVPN.apk
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -223,7 +144,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="v1.0.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk \
-            --title "AmirVPN $TAG" \
-            --notes "Automated build with gated sync/config/Home integration checks."
+          TAG="v1.1.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" AmirVPN.apk             --title "AmirVPN $TAG"             --notes "Standalone AmirVPN APK with bundled local server profiles and Android VPN permission flow."
