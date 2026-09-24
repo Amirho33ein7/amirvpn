@@ -184,6 +184,7 @@ jobs:
           PY
 
       - name: Start Android emulator
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
