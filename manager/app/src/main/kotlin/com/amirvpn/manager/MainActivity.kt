@@ -389,10 +389,26 @@ class MainActivity : Activity() {
 
         val remoteJson = runCatching { JSONObject(remoteContent) }
             .getOrElse { throw IllegalStateException("داده منتشرشده JSON معتبر برنگرداند") }
-        if (!remoteJson.similar(config)) {
+        if (canonicalJson(remoteJson) != canonicalJson(config)) {
             throw IllegalStateException("سرور نسخه جدید را برنگرداند؛ Sync تأیید نشد")
         }
         Libbox.checkConfig(remoteContent)
+    }
+
+    private fun canonicalJson(value: Any?): String = when (value) {
+        is JSONObject -> {
+            val keys = value.keys().asSequence().toList().sorted()
+            keys.joinToString(prefix = "{", postfix = "}") { key ->
+                JSONObject.quote(key) + ":" + canonicalJson(value.get(key))
+            }
+        }
+        is JSONArray -> {
+            (0 until value.length()).joinToString(prefix = "[", postfix = "]") { index ->
+                canonicalJson(value.get(index))
+            }
+        }
+        JSONObject.NULL -> "null"
+        else -> JSONObject.valueToString(value)
     }
 
     private fun endpoint(link: String): String = runCatching {
