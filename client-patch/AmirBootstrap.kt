@@ -22,7 +22,7 @@ object AmirBootstrap {
         return runCatching {
             val raw = Application.application.assets.open(ASSET_NAME).bufferedReader().use { it.readText() }
                 .replace("\\s".toRegex(), "")
-            val decoded = Base64.decode(raw, Base64.DEFAULT).toString(StandardCharsets.UTF_8.name())
+            val decoded = Base64.decode(raw, Base64.DEFAULT).toString(StandardCharsets.UTF_8)
             val links = decoded.lineSequence()
                 .map { it.trim() }
                 .filter { it.startsWith("vless://", true) || it.startsWith("trojan://", true) }
