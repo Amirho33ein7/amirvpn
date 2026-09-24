@@ -7,6 +7,7 @@ name: Build AmirVPN
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -33,7 +34,7 @@ jobs:
           if not links:
               raise SystemExit("No bundled VPN servers")
           if len(links) < 4:
-              raise SystemExit(f"Expected bundled server list, found only {len(links)} entries")
+              raise SystemExit(f"Expected at least 4 bundled servers, found {len(links)}")
           print(f"Bundled server links: {len(links)}")
           for link in links:
               print(link.split("?", 1)[0])
@@ -79,7 +80,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p client/app/libs
-          curl -fL --retry 3 -o client/app/libs/libbox.aar             https://github.com/singbox-android/libbox/releases/download/1.14.1/libbox.aar
+          curl -fL --retry 3 -o client/app/libs/libbox.aar https://github.com/singbox-android/libbox/releases/download/1.14.1/libbox.aar
           test -s client/app/libs/libbox.aar
 
       - name: Patch standalone AmirVPN
@@ -101,43 +102,35 @@ jobs:
           cp "$APK" AmirVPN.apk
           ls -lh AmirVPN.apk
 
-      - name: Upload built APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: amirvpn-apk-built
-          path: AmirVPN.apk
-          if-no-files-found: error
-
-      - name: Run Android integration smoke test
+      - name: Run Android VPN permission and tunnel smoke test
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager --install "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
-          echo no | avdmanager create avd --force             --name amirvpn-test             --package "system-images;android-35;google_apis;x86_64"
+          echo no | avdmanager create avd --force --name amirvpn-test --package "system-images;android-35;google_apis;x86_64"
           if [ -e /dev/kvm ]; then
             sudo chmod 666 /dev/kvm || true
           fi
           adb start-server
-          emulator -avd amirvpn-test             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -wipe-data             -gpu swiftshader_indirect &
+          emulator -avd amirvpn-test -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect &
           EMU_PID=$!
-          trap 'kill $EMU_PID 2>/dev/null || true' EXIT
+          trap 'kill "$EMU_PID" 2>/dev/null || true' EXIT
 
           timeout 120s adb wait-for-device
-
           for i in $(seq 1 90); do
-            if adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; then
+            if adb shell getprop sys.boot_completed 2>/dev/null | tr -d '' | grep -q '^1$'; then
               break
             fi
             sleep 2
           done
-          adb shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1$'
+          adb shell getprop sys.boot_completed | tr -d '' | grep -q '^1$'
 
           adb install -r AmirVPN.apk
           adb logcat -c
           adb shell monkey -p io.nekohasekai.sfa 1 >/dev/null 2>&1
           sleep 12
 
-          adb dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
+          adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
           adb logcat -d | grep -q "Bundled servers installed"
 
           adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null
@@ -149,23 +142,21 @@ jobs:
           import xml.etree.ElementTree as ET
 
           root = ET.parse("/tmp/amirvpn-ui.xml").getroot()
-
           target = None
           for node in root.iter("node"):
               text = node.attrib.get("text", "")
               if text.startswith("AmirVPN • "):
                   target = node
                   break
-
           if target is None:
               raise SystemExit("Bundled AmirVPN profile not visible on Home")
 
           bounds = target.attrib["bounds"]
           x1,y1,x2,y2 = map(int, re.findall(r"\d+", bounds))
-          x = (x1+x2)//2
-          y = (y1+y2)//2
-
-          subprocess.run(["adb","shell","input","tap",str(x),str(y)], check=True)
+          subprocess.run(
+              ["adb","shell","input","tap",str((x1+x2)//2),str((y1+y2)//2)],
+              check=True,
+          )
           PY
 
           sleep 2
@@ -173,7 +164,7 @@ jobs:
           adb pull -q /sdcard/amirvpn-dialog.xml /tmp/amirvpn-dialog.xml >/dev/null
 
           if ! grep -qiE "VPN|connection request|allow|ok" /tmp/amirvpn-dialog.xml; then
-            echo "VPN permission dialog was not detected."
+            echo "Android VPN permission dialog was not detected."
             cat /tmp/amirvpn-dialog.xml
             exit 1
           fi
@@ -184,7 +175,6 @@ jobs:
           import xml.etree.ElementTree as ET
 
           root = ET.parse("/tmp/amirvpn-dialog.xml").getroot()
-
           candidates = []
           for node in root.iter("node"):
               text = node.attrib.get("text", "").strip().lower()
@@ -193,17 +183,19 @@ jobs:
                   if bounds:
                       candidates.append(bounds)
 
-          if candidates:
-              x1,y1,x2,y2 = map(int, re.findall(r"\d+", candidates[-1]))
-              subprocess.run([
-                  "adb","shell","input","tap",
-                  str((x1+x2)//2),str((y1+y2)//2)
-              ], check=True)
+          if not candidates:
+              raise SystemExit("No actionable Allow/OK VPN permission control was found")
+
+          x1,y1,x2,y2 = map(int, re.findall(r"\d+", candidates[-1]))
+          subprocess.run(
+              ["adb","shell","input","tap",str((x1+x2)//2),str((y1+y2)//2)],
+              check=True,
+          )
           PY
 
           sleep 5
+          adb shell dumpsys vpn_management || true
 
-          # Verify that Android created the VPN tunnel interface.
           if ! adb shell ip addr show tun0 2>/dev/null | grep -q "tun0"; then
             echo "VPN permission flow completed, but tun0 was not observed."
             adb shell dumpsys activity services io.nekohasekai.sfa || true
@@ -211,11 +203,35 @@ jobs:
             exit 1
           fi
 
-      - name: Publish GitHub release
+          if ! adb shell ip route 2>/dev/null | grep -q "tun0"; then
+            echo "VPN interface exists, but no route was attached to tun0."
+            adb shell ip route || true
+            exit 1
+          fi
+
+          echo "VPN permission and tunnel checks passed."
+
+      - name: Publish client-only GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           TAG="v1.1.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" AmirVPN.apk             --title "AmirVPN $TAG"             --notes "Standalone AmirVPN APK with bundled local server profiles and Android VPN permission flow."
+          gh release create "$TAG" AmirVPN.apk             --title "AmirVPN $TAG"             --notes "Standalone AmirVPN client. No manager APK is published."
+
+          echo "Cleaning old releases..."
+          old_tags="$(gh release list --limit 1000 --json tagName --jq '.[].tagName' | grep -v "^$TAG$" || true)"
+          while IFS= read -r old_tag; do
+            [ -n "$old_tag" ] || continue
+            gh release delete "$old_tag" --yes --cleanup-tag || true
+          done <<< "$old_tags"
+
+          echo "Cleaning old GitHub Actions artifacts..."
+          artifact_ids="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100"             --jq '.artifacts[].id' || true)"
+          while IFS= read -r artifact_id; do
+            [ -n "$artifact_id" ] || continue
+            gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/actions/artifacts/$artifact_id" || true
+          done <<< "$artifact_ids"
+
+          echo "Only the current client release is retained."
