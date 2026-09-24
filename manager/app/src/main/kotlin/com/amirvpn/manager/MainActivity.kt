@@ -408,7 +408,13 @@ class MainActivity : Activity() {
             }
         }
         JSONObject.NULL -> "null"
-        else -> JSONObject.valueToString(value)
+        else -> when (value) {
+            null -> "null"
+            is String -> JSONObject.quote(value)
+            is Boolean -> value.toString()
+            is Number -> value.toString()
+            else -> JSONObject.quote(value.toString())
+        }
     }
 
     private fun endpoint(link: String): String = runCatching {
