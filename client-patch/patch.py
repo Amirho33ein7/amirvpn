@@ -53,6 +53,19 @@ app.write_text(text, encoding="utf-8")
 main_activity = root / "app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"
 text = main_activity.read_text(encoding="utf-8")
 text = text.replace(
+    """        connection.reconnect()
+        RemoteControlManager.restore()
+""",
+    """        connection.reconnect()
+        RemoteControlManager.restore()
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            AmirBootstrap.ensure()
+        }
+""",
+    1,
+)
+text = text.replace(
     """        UpdateState.loadFromCache()
         if (Settings.checkUpdateEnabled) {
             lifecycleScope.launch(Dispatchers.IO) {
