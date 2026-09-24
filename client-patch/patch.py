@@ -113,7 +113,7 @@ text = dashboard_vm.read_text(encoding="utf-8")
 if "import io.nekohasekai.sfa.AmirBootstrap" not in text:
     text = text.replace(
         "import io.nekohasekai.sfa.bg.BoxService\n",
-        "import io.nekohasekai.sfa.AmirBootstrap\nimport io.nekohasekai.sfa.bg.BoxService\n",
+        "import android.util.Log\nimport io.nekohasekai.sfa.AmirBootstrap\nimport io.nekohasekai.sfa.bg.BoxService\n",
         1,
     )
 
@@ -150,6 +150,7 @@ if "Selecting a server from Home should connect" not in text:
 
                 // A server tap on Home follows the normal Android VPN permission flow.
                 if (_serviceStatus.value == Status.Stopped) {
+                    Log.i("AmirVPN", "Profile selected; requesting service start id=$profileId")
                     sendGlobalEvent(UiEvent.RequestStartService)
                 }
 
