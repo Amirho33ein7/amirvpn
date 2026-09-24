@@ -167,6 +167,22 @@ jobs:
           print("Shared sync endpoint reachable; JSON object returned.")
           PY
 
+      - name: Verify shared sync write
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_JSON='{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}'
+          curl -fsSL --retry 3 -X PUT "$SYNC_URL"             -H 'Content-Type: application/json; charset=utf-8'             --data "$TEST_JSON"             -o /tmp/amirvpn-put-response.json
+          curl -fsSL --retry 3 "$SYNC_URL" -o /tmp/amirvpn-put-readback.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          sent=json.loads('{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}')
+          got=json.loads(Path("/tmp/amirvpn-put-readback.json").read_text())
+          assert got == sent, "shared sync PUT/GET round-trip mismatch"
+          print("Shared sync PUT/GET round-trip passed.")
+          PY
+
       - name: Start Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
