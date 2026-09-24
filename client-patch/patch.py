@@ -226,6 +226,12 @@ dashboard_screen.write_text(text, encoding="utf-8")
 # Make the visible profile label itself activate the same selection callback as the row.
 profile_sheet = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilePickerSheet.kt"
 text = profile_sheet.read_text(encoding="utf-8")
+if "import androidx.compose.foundation.clickable" not in text:
+    text = text.replace(
+        "import androidx.compose.foundation.layout.Arrangement\n",
+        "import androidx.compose.foundation.clickable\nimport androidx.compose.foundation.layout.Arrangement\n",
+        1,
+    )
 label_old = """                Text(
                     text = profile.name,
                     style = MaterialTheme.typography.bodyMedium,
