@@ -76,25 +76,43 @@ if count != 1:
 dst.write_text(bootstrap_text, encoding="utf-8")
 
 
-# Dashboard sync: allow users to force-refresh the shared remote profile from Home.
+# Dashboard sync: bootstrap/refresh the shared remote profile on Home.
 dashboard_vm = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt"
 text = dashboard_vm.read_text(encoding="utf-8")
-if "var profiles = ProfileManager.list()" not in text:
+
+if "import io.nekohasekai.sfa.AmirBootstrap" not in text:
     text = text.replace(
-        """                val profiles = ProfileManager.list()
-                val selectedId = Settings.selectedProfile
-""",
-        """                var profiles = ProfileManager.list()
-                if (profiles.none { it.name == "AmirVPN" }) {
-                    AmirBootstrap.ensure()
-                    profiles = ProfileManager.list()
-                }
-                val selectedId = Settings.selectedProfile
-""",
+        "import io.nekohasekai.sfa.bg.BoxService\n",
+        "import io.nekohasekai.sfa.AmirBootstrap\nimport io.nekohasekai.sfa.bg.BoxService\n",
         1,
     )
 
-if "Settings.selectedProfile = profileId" in text and "RequestStartService" not in text:
+if "private var bootstrapAttempted = false" not in text:
+    text = text.replace(
+        "    private val _serviceStatus = MutableStateFlow(Status.Stopped)\n",
+        "    private val _serviceStatus = MutableStateFlow(Status.Stopped)\n    private var bootstrapAttempted = false\n",
+        1,
+    )
+
+text = text.replace(
+    """        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val profiles = ProfileManager.list()
+                val selectedId = Settings.selectedProfile
+""",
+    """        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (!bootstrapAttempted) {
+                    bootstrapAttempted = true
+                    AmirBootstrap.ensure()
+                }
+                val profiles = ProfileManager.list()
+                val selectedId = Settings.selectedProfile
+""",
+    1,
+)
+
+if "Selecting a server from Home should connect" not in text:
     text = text.replace(
         """                Settings.selectedProfile = profileId
 
@@ -102,6 +120,7 @@ if "Settings.selectedProfile = profileId" in text and "RequestStartService" not 
 """,
         """                Settings.selectedProfile = profileId
 
+                // Selecting a server from Home should connect when the tunnel is stopped.
                 if (_serviceStatus.value == Status.Stopped) {
                     sendGlobalEvent(UiEvent.RequestStartService)
                 }
@@ -113,29 +132,15 @@ if "Settings.selectedProfile = profileId" in text and "RequestStartService" not 
 
 if "fun refreshRemoteProfiles()" not in text:
     text = text.replace(
-        "import io.nekohasekai.sfa.database.Profile\n",
-        "import io.nekohasekai.sfa.AmirBootstrap\nimport io.nekohasekai.sfa.database.Profile\n",
-        1,
-    )
-    text = text.replace(
         "    fun updateProfile(profile: Profile) {\n",
-        """    /**
-     * Refresh all remote profiles from the shared AmirVPN configuration endpoint.
-     * If the profile has not been created yet, bootstrap it first.
-     */
-    fun refreshRemoteProfiles() {
+        """    fun refreshRemoteProfiles() {
         viewModelScope.launch(Dispatchers.IO) {
-            val remotes = ProfileManager.list()
-                .filter { it.typed.type == TypedProfile.Type.Remote }
-
-            if (remotes.isEmpty()) {
+            try {
                 AmirBootstrap.ensure()
+                bootstrapAttempted = true
                 loadProfiles()
-                return@launch
-            }
-
-            remotes.forEach { profile ->
-                updateProfile(profile)
+            } catch (e: Exception) {
+                sendError(e)
             }
         }
     }
@@ -144,19 +149,41 @@ if "fun refreshRemoteProfiles()" not in text:
 """,
         1,
     )
+
+# Put the Profiles/servers card first on Home.
+profileFirst = """            CardGroup.Profiles,
+            CardGroup.UploadTraffic,
+            CardGroup.DownloadTraffic,
+            CardGroup.Debug,
+            CardGroup.Connections,
+            CardGroup.SystemProxy,
+            CardGroup.ClashMode,"""
+defaultOrder = """            CardGroup.UploadTraffic,
+            CardGroup.DownloadTraffic,
+            CardGroup.Debug,
+            CardGroup.Connections,
+            CardGroup.SystemProxy,
+            CardGroup.ClashMode,
+            CardGroup.Profiles,"""
+text = text.replace(defaultOrder, profileFirst, 2)
+
 dashboard_vm.write_text(text, encoding="utf-8")
 
 dashboard_screen = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt"
 text = dashboard_screen.read_text(encoding="utf-8")
-if "LaunchedEffect(Unit)" not in text:
+
+if "import androidx.compose.runtime.LaunchedEffect" not in text:
     text = text.replace(
         "import androidx.compose.runtime.Composable\n",
         "import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.LaunchedEffect\n",
         1,
     )
+
+if "viewModel.refreshRemoteProfiles()" not in text:
     text = text.replace(
         "    val uiState by viewModel.uiState.collectAsState()\n",
         """    val uiState by viewModel.uiState.collectAsState()
+
     LaunchedEffect(Unit) {
         viewModel.refreshRemoteProfiles()
     }
@@ -164,14 +191,16 @@ if "LaunchedEffect(Unit)" not in text:
         1,
     )
 
-if 'contentDescription = "تازه‌سازی سرورها"' not in text:
+if "Icons.Default.Refresh" not in text:
     text = text.replace(
         "import androidx.compose.material.icons.filled.MoreVert\n",
         "import androidx.compose.material.icons.filled.MoreVert\nimport androidx.compose.material.icons.filled.Refresh\n",
         1,
     )
     text = text.replace(
-        "            actions = {\n                Box {\n",
+        """            actions = {
+                Box {
+""",
         """            actions = {
                 IconButton(onClick = { viewModel.refreshRemoteProfiles() }) {
                     Icon(
@@ -183,6 +212,7 @@ if 'contentDescription = "تازه‌سازی سرورها"' not in text:
 """,
         1,
     )
+
 dashboard_screen.write_text(text, encoding="utf-8")
 
-print("Dashboard refresh patch ready")
+print("Dashboard/Home patch ready")
