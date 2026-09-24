@@ -389,7 +389,7 @@ class MainActivity : Activity() {
 
         val remoteJson = runCatching { JSONObject(remoteContent) }
             .getOrElse { throw IllegalStateException("داده منتشرشده JSON معتبر برنگرداند") }
-        if (remoteJson.toString() != config.toString()) {
+        if (!remoteJson.similar(config)) {
             throw IllegalStateException("سرور نسخه جدید را برنگرداند؛ Sync تأیید نشد")
         }
         Libbox.checkConfig(remoteContent)
