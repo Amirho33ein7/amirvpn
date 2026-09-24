@@ -171,13 +171,26 @@ jobs:
           )
           PY
 
-          sleep 2
-          adb shell uiautomator dump /sdcard/amirvpn-dialog.xml >/dev/null
-          adb pull -q /sdcard/amirvpn-dialog.xml /tmp/amirvpn-dialog.xml >/dev/null
+          # Android owns the VPN consent dialog through the privileged VpnDialogs package.
+          # Poll for that actual system window instead of assuming its UI node package.
+          for i in $(seq 1 20); do
+            adb shell uiautomator dump /sdcard/amirvpn-dialog.xml >/dev/null 2>&1 || true
+            adb pull -q /sdcard/amirvpn-dialog.xml /tmp/amirvpn-dialog.xml >/dev/null 2>&1 || true
+            WINDOW_STATE="$(adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | tail -n 5 || true)"
+            if printf '%s\\n' "$WINDOW_STATE" | grep -qiE 'com\\.android\\.vpndialogs|VpnDialogs'; then
+              break
+            fi
+            sleep 1
+          done
 
-          if ! grep -qiE "VPN|connection request|allow|ok" /tmp/amirvpn-dialog.xml; then
-            echo "Android VPN permission dialog was not detected."
-            cat /tmp/amirvpn-dialog.xml
+          echo "--- VPN consent window ---"
+          adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | tail -n 10 || true
+          echo "--- VPN consent UI XML ---"
+          cat /tmp/amirvpn-dialog.xml || true
+
+          if ! adb shell dumpsys window windows 2>/dev/null | grep -qiE 'com\\.android\\.vpndialogs|VpnDialogs'; then
+            echo "Android VpnDialogs window was not detected."
+            adb logcat -d | grep -iE 'VpnConfirm|VpnDialogs|VPN|io\\.nekohasekai\\.sfa' | tail -n 200 || true
             exit 1
           fi
 
@@ -191,37 +204,37 @@ jobs:
           for node in root.iter("node"):
               text = node.attrib.get("text", "").strip().lower()
               desc = node.attrib.get("content-desc", "").strip().lower()
-              klass = node.attrib.get("class", "")
-              clickable = node.attrib.get("clickable", "false") == "true"
-              enabled = node.attrib.get("enabled", "false") == "true"
+              rid = node.attrib.get("resource-id", "").strip().lower()
+              klass = node.attrib.get("class", "").strip().lower()
               bounds = node.attrib.get("bounds")
               if not bounds:
                   continue
-              if text in {"allow","ok","connect"} or "allow" in text or "allow" in desc:
-                  candidates.append(bounds)
-              elif clickable and enabled and "button" in klass.lower():
+
+              semantic = (
+                  text in {"allow", "ok", "connect", "continue", "yes"}
+                  or any(word in text for word in ("allow", "connect", "continue"))
+                  or any(word in desc for word in ("allow", "connect", "continue"))
+              )
+              buttonish = (
+                  "button" in klass
+                  or rid.endswith(":id/button1")
+                  or rid.endswith(":id/ok")
+                  or rid.endswith("/button1")
+              )
+              if semantic or buttonish:
                   candidates.append(bounds)
 
           if not candidates:
-              for node in root.iter("node"):
-                  bounds = node.attrib.get("bounds")
-                  package = node.attrib.get("package", "")
-                  clickable = node.attrib.get("clickable", "false") == "true"
-                  enabled = node.attrib.get("enabled", "false") == "true"
-                  if bounds and clickable and enabled and package == "com.android.systemui":
-                      candidates.append(bounds)
+              raise SystemExit("VPN consent window found, but no actionable button node was exposed by UIAutomator")
 
-          if not candidates:
-              raise SystemExit("No actionable control was found")
-
-          def score(b):
-              x1,y1,x2,y2 = map(int, re.findall(r"\d+", b))
+          def score(bounds):
+              x1, y1, x2, y2 = map(int, re.findall(r"\\d+", bounds))
               return (y2, x2, (x2-x1)*(y2-y1))
 
           bounds = sorted(candidates, key=score)[-1]
-          x1,y1,x2,y2 = map(int, re.findall(r"\d+", bounds))
+          x1, y1, x2, y2 = map(int, re.findall(r"\\d+", bounds))
           subprocess.run(
-              ["adb","shell","input","tap",str((x1+x2)//2),str((y1+y2)//2)],
+              ["adb", "shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2)],
               check=True,
           )
           PY
