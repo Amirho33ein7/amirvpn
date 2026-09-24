@@ -190,15 +190,27 @@ jobs:
           candidates = []
           for node in root.iter("node"):
               text = node.attrib.get("text", "").strip().lower()
-              if text in {"allow","ok","connect"} or "allow" in text:
-                  bounds = node.attrib.get("bounds")
-                  if bounds:
-                      candidates.append(bounds)
+              desc = node.attrib.get("content-desc", "").strip().lower()
+              klass = node.attrib.get("class", "")
+              clickable = node.attrib.get("clickable", "false") == "true"
+              enabled = node.attrib.get("enabled", "false") == "true"
+              bounds = node.attrib.get("bounds")
+              if not bounds:
+                  continue
+              if text in {"allow","ok","connect"} or "allow" in text or "allow" in desc:
+                  candidates.append(bounds)
+              elif clickable and enabled and "button" in klass.lower():
+                  candidates.append(bounds)
 
           if not candidates:
-              raise SystemExit("No actionable Allow/OK VPN permission control was found")
+              raise SystemExit("No actionable VPN permission control was found")
 
-          x1,y1,x2,y2 = map(int, re.findall(r"\d+", candidates[-1]))
+          def score(b):
+              x1,y1,x2,y2 = map(int, re.findall(r"\d+", b))
+              return (y2, x2, (x2-x1)*(y2-y1))
+
+          bounds = sorted(candidates, key=score)[-1]
+          x1,y1,x2,y2 = map(int, re.findall(r"\d+", bounds))
           subprocess.run(
               ["adb","shell","input","tap",str((x1+x2)//2),str((y1+y2)//2)],
               check=True,
