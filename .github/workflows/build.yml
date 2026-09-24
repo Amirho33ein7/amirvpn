@@ -100,17 +100,26 @@ jobs:
           cp "$APK" AmirVPN.apk
           ls -lh AmirVPN.apk
 
+      - name: Upload built APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: amirvpn-apk-built
+          path: AmirVPN.apk
+          if-no-files-found: error
+
       - name: Run Android integration smoke test
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager --install "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
           echo no | avdmanager create avd --force             --name amirvpn-test             --package "system-images;android-35;google_apis;x86_64"
-          emulator -avd amirvpn-test -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -gpu swiftshader_indirect &
+          adb start-server
+          emulator -avd amirvpn-test             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -wipe-data             -gpu swiftshader_indirect             -accel off &
           EMU_PID=$!
           trap 'kill $EMU_PID 2>/dev/null || true' EXIT
 
-          adb wait-for-device
+          timeout 120s adb wait-for-device
+
           for i in $(seq 1 90); do
             if adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; then
               break
@@ -121,22 +130,82 @@ jobs:
 
           adb install -r AmirVPN.apk
           adb logcat -c
-          adb shell monkey -p io.nekohasekai.sfa 1
+          adb shell monkey -p io.nekohasekai.sfa 1 >/dev/null 2>&1
           sleep 12
 
           adb dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
           adb logcat -d | grep -q "Bundled servers installed"
 
           adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null
-          adb shell cat /sdcard/amirvpn-ui.xml | grep -q "Home"
-          adb shell cat /sdcard/amirvpn-ui.xml | grep -q "AmirVPN"
+          adb pull -q /sdcard/amirvpn-ui.xml /tmp/amirvpn-ui.xml >/dev/null
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: amirvpn-apk
-          path: AmirVPN.apk
-          if-no-files-found: error
+          python3 - <<'PY'
+          import re
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("/tmp/amirvpn-ui.xml").getroot()
+
+          target = None
+          for node in root.iter("node"):
+              text = node.attrib.get("text", "")
+              if text.startswith("AmirVPN • "):
+                  target = node
+                  break
+
+          if target is None:
+              raise SystemExit("Bundled AmirVPN profile not visible on Home")
+
+          bounds = target.attrib["bounds"]
+          x1,y1,x2,y2 = map(int, re.findall(r"\d+", bounds))
+          x = (x1+x2)//2
+          y = (y1+y2)//2
+
+          subprocess.run(["adb","shell","input","tap",str(x),str(y)], check=True)
+          PY
+
+          sleep 2
+          adb shell uiautomator dump /sdcard/amirvpn-dialog.xml >/dev/null
+          adb pull -q /sdcard/amirvpn-dialog.xml /tmp/amirvpn-dialog.xml >/dev/null
+
+          if ! grep -qiE "VPN|connection request|allow|ok" /tmp/amirvpn-dialog.xml; then
+            echo "VPN permission dialog was not detected."
+            cat /tmp/amirvpn-dialog.xml
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import re
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("/tmp/amirvpn-dialog.xml").getroot()
+
+          candidates = []
+          for node in root.iter("node"):
+              text = node.attrib.get("text", "").strip().lower()
+              if text in {"allow","ok","connect"} or "allow" in text:
+                  bounds = node.attrib.get("bounds")
+                  if bounds:
+                      candidates.append(bounds)
+
+          if candidates:
+              x1,y1,x2,y2 = map(int, re.findall(r"\d+", candidates[-1]))
+              subprocess.run([
+                  "adb","shell","input","tap",
+                  str((x1+x2)//2),str((y1+y2)//2)
+              ], check=True)
+          PY
+
+          sleep 5
+
+          # Verify that Android created the VPN tunnel interface.
+          if ! adb shell ip addr show tun0 2>/dev/null | grep -q "tun0"; then
+            echo "VPN permission flow completed, but tun0 was not observed."
+            adb shell dumpsys activity services io.nekohasekai.sfa || true
+            adb logcat -d | tail -n 250 || true
+            exit 1
+          fi
 
       - name: Publish GitHub release
         env:
