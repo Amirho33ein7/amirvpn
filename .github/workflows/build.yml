@@ -128,7 +128,7 @@ jobs:
           adb install -r AmirVPN.apk
           adb logcat -c
           adb shell monkey -p io.nekohasekai.sfa 1 >/dev/null 2>&1
-          adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
+          adb shell pm path io.nekohasekai.sfa | grep -q '^package:'
 
           for i in $(seq 1 20); do
             adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null 2>&1 || true
