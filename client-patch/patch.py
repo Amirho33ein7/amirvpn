@@ -39,13 +39,43 @@ theme.write_text(text, encoding="utf-8")
 # Install bundled server profiles during app startup.
 app = root / "app/src/main/java/io/nekohasekai/sfa/Application.kt"
 text = app.read_text(encoding="utf-8")
+text = text.replace("            UpdateProfileWork.reconfigureUpdater()\n", "")
 if "AmirBootstrap.ensure()" not in text:
     text = text.replace(
-        "            initialize(baseDir, workingDir, tempDir)\n            UpdateProfileWork.reconfigureUpdater()",
+        "            initialize(baseDir, workingDir, tempDir)",
         "            initialize(baseDir, workingDir, tempDir)\n            AmirBootstrap.ensure()",
         1,
     )
 app.write_text(text, encoding="utf-8")
+
+
+# Disable upstream first-launch / automatic application update checking.
+main_activity = root / "app/src/main/java/io/nekohasekai/sfa/compose/MainActivity.kt"
+text = main_activity.read_text(encoding="utf-8")
+text = text.replace(
+    """        UpdateState.loadFromCache()
+        if (Settings.checkUpdateEnabled) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val updateInfo = Vendor.checkUpdateAsync()
+                    UpdateState.setUpdate(updateInfo)
+                } catch (_: Exception) {
+                    UpdateState.setUpdate(null)
+                }
+            }
+        }
+
+""",
+    "",
+    1,
+)
+prompt_start = text.find("        // Handle update check prompt dialog (shown only once on first launch)")
+prompt_end = text.find("        // Handle update available dialog", prompt_start)
+if prompt_start >= 0 and prompt_end > prompt_start:
+    text = text[:prompt_start] + text[prompt_end:]
+else:
+    raise SystemExit("Unable to locate upstream update prompt block")
+main_activity.write_text(text, encoding="utf-8")
 
 # Copy the bundled server list and local bootstrap into the client source.
 asset_src = Path("client-patch/amirs-servers.b64")
