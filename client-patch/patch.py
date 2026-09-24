@@ -136,8 +136,20 @@ if "fun refreshRemoteProfiles()" not in text:
         """    fun refreshRemoteProfiles() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                AmirBootstrap.ensure()
+                val changed = AmirBootstrap.ensure()
                 bootstrapAttempted = true
+
+                if (changed &&
+                    _serviceStatus.value == Status.Started &&
+                    ProfileManager.list().any { it.name == "AmirVPN" && it.id == Settings.selectedProfile }
+                ) {
+                    runCatching {
+                        Libbox.newStandaloneCommandClient().serviceReload()
+                    }.onFailure {
+                        sendGlobalEvent(UiEvent.RequestReconnectService)
+                    }
+                }
+
                 loadProfiles()
             } catch (e: Exception) {
                 sendError(e)
@@ -185,7 +197,10 @@ if "viewModel.refreshRemoteProfiles()" not in text:
         """    val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(Unit) {
-        viewModel.refreshRemoteProfiles()
+        while (true) {
+            viewModel.refreshRemoteProfiles()
+            kotlinx.coroutines.delay(30_000)
+        }
     }
 """,
         1,
