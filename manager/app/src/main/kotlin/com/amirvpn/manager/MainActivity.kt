@@ -216,7 +216,7 @@ class MainActivity : Activity() {
             hint = "لینک‌های VLESS/Trojan یا Base64"
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
-            minLines = 6
+            minLines = 4
             maxLines = 12
             gravity = Gravity.TOP
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -225,21 +225,25 @@ class MainActivity : Activity() {
 
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(input, FrameLayout.LayoutParams(-1, dp(220)))
+            addView(input, FrameLayout.LayoutParams(-1, dp(155)))
         }
 
         val dialog = AlertDialog.Builder(this)
-            .setTitle("ورود گروهی کانفیگ‌ها")
-            .setMessage("Base64 چندخطی یا چند لینک را یکجا وارد کن.")
+            .setTitle("افزودن گروهی کانفیگ‌ها")
             .setView(scroll)
             .setNegativeButton("لغو", null)
-            .setPositiveButton("وارد کردن", null)
+            .setPositiveButton("افزودن", null)
             .create()
 
         dialog.setOnShowListener {
             dialog.window?.setSoftInputMode(
                 android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             )
+
+            // Keep the action buttons in the fixed AlertDialog button bar.
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.isAllCaps = false
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isAllCaps = false
+
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 try {
                     val shares = decodeImport(input.text.toString())
@@ -259,16 +263,15 @@ class MainActivity : Activity() {
                     save()
                     render()
                     publish()
-                    toast("${added} کانفیگ وارد شد")
+                    toast("${added} کانفیگ اضافه شد")
                     dialog.dismiss()
                 } catch (e: Exception) {
-                    toast("خطا در ورود: ${e.message ?: "داده نامعتبر"}")
+                    toast("خطا در افزودن: ${e.message ?: "داده نامعتبر"}")
                 }
             }
         }
         dialog.show()
     }
-
     private fun decodeImport(rawInput: String): List<String> {
         val raw = rawInput.trim()
         if (raw.isBlank()) return emptyList()
