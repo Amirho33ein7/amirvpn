@@ -144,15 +144,6 @@ jobs:
           cp "$APK" AmirVPN-Client.apk
           ls -lh AmirVPN-Client.apk AmirVPN-Manager.apk
 
-      - name: Publish build candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="v1.0.${GITHUB_RUN_NUMBER}-candidate"
-          gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk             --title "AmirVPN $TAG"             --notes "APK build verified by Gradle. Runtime emulator validation runs after packaging."
-
       - name: Verify shared sync endpoint
         shell: bash
         run: |
@@ -167,24 +158,26 @@ jobs:
           print("Shared sync endpoint reachable; JSON object returned.")
           PY
 
-      - name: Verify shared sync write
+      - name: Verify isolated sync PUT/GET
         shell: bash
         run: |
           set -euo pipefail
           TEST_JSON='{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}'
-          curl -fsSL --retry 3 -X PUT "$SYNC_URL"             -H 'Content-Type: application/json; charset=utf-8'             --data "$TEST_JSON"             -o /tmp/amirvpn-put-response.json
-          curl -fsSL --retry 3 "$SYNC_URL" -o /tmp/amirvpn-put-readback.json
+          RESPONSE="$(curl -fsSL --retry 3 -X POST https://superjsonblob.com/api/jsonBlob -H 'Content-Type: application/json' -H 'Accept: application/json' --data "$TEST_JSON")"
+          TEST_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["id"])' <<<"$RESPONSE")"
+          test -n "$TEST_ID"
+          TEST_URL="https://superjsonblob.com/api/jsonBlob/$TEST_ID"
+          curl -fsSL --retry 3 -X PUT "$TEST_URL" -H 'Content-Type: application/json; charset=utf-8' --data "$TEST_JSON" >/tmp/amirvpn-test-put-response.json
+          curl -fsSL --retry 3 "$TEST_URL" -o /tmp/amirvpn-test-readback.json
           python3 - <<'PY'
           import json
           from pathlib import Path
-          sent=json.loads('{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}')
-          got=json.loads(Path("/tmp/amirvpn-put-readback.json").read_text())
-          assert got == sent, "shared sync PUT/GET round-trip mismatch"
-          print("Shared sync PUT/GET round-trip passed.")
+          got=json.loads(Path("/tmp/amirvpn-test-readback.json").read_text())
+          expected={"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}
+          assert got == expected
+          print("Isolated sync PUT/GET round-trip passed; production sync was not modified.")
           PY
-
-      - name: Start Android emulator
-        continue-on-error: true
+      - name: Start Android emulator and run integration smoke test
         shell: bash
         run: |
           set -euo pipefail
@@ -204,12 +197,18 @@ jobs:
           adb install -r AmirVPN-Client.apk
           adb shell monkey -p com.amirvpn.manager 1
           sleep 5
-          adb shell am force-stop com.amirvpn.manager
-          adb shell monkey -p io.nekohasekai.sfa 1
-          sleep 8
           adb shell dumpsys package com.amirvpn.manager | grep -q "versionName=1.0.0"
-          adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
+          adb shell am force-stop com.amirvpn.manager
 
+          adb logcat -c
+          adb shell monkey -p io.nekohasekai.sfa 1
+          sleep 10
+          adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
+          adb logcat -d | grep -q "Shared configuration"
+
+          adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null
+          adb shell cat /sdcard/amirvpn-ui.xml | grep -q "Home"
+          adb shell cat /sdcard/amirvpn-ui.xml | grep -q "AmirVPN"
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -224,5 +223,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          set -euo pipefail
           TAG="v1.0.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk             --title "AmirVPN $TAG"             --notes "Automated tested Android builds of AmirVPN client and manager."
+          gh release create "$TAG" AmirVPN-Client.apk AmirVPN-Manager.apk \
+            --title "AmirVPN $TAG" \
+            --notes "Automated build with gated sync/config/Home integration checks."
