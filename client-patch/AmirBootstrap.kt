@@ -37,8 +37,6 @@ object AmirBootstrap {
             links.forEachIndexed { index, share ->
                 val name = deriveName(share, index + 1)
                 val config = buildConfig(share)
-                Libbox.checkConfig(config)
-
                 val current = existing.firstOrNull { it.name == name }
                 val file = if (current != null) {
                     File(current.typed.path)
