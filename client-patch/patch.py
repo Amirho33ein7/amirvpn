@@ -42,7 +42,7 @@ text = app.read_text(encoding="utf-8")
 if "AmirBootstrap.ensure()" not in text:
     text = text.replace(
         "            initialize(baseDir, workingDir, tempDir)\n            UpdateProfileWork.reconfigureUpdater()",
-        "            initialize(baseDir, workingDir, tempDir)\n            AmirBootstrap.ensure()\n            UpdateProfileWork.reconfigureUpdater()",
+        "            initialize(baseDir, workingDir, tempDir)\n            AmirBootstrap.ensure()",
         1,
     )
 app.write_text(text, encoding="utf-8")
