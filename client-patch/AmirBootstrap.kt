@@ -4,6 +4,7 @@ import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
 import java.io.File
@@ -13,9 +14,22 @@ object AmirBootstrap {
     private const val TAG = "AmirVPN"
     const val REMOTE_URL = "https://api.jsonstorage.net/v1/json/amirvpn-core-9d8c1b6e/servers-4f7a2c91"
 
-    suspend fun ensure() {
+    /**
+     * Fetch and install the shared Manager configuration.
+     * Returns true only when the local AmirVPN profile contents changed.
+     */
+    suspend fun ensure(): Boolean {
+        var changed = false
+
         runCatching {
-            val content = HTTPClient().use { it.getString(REMOTE_URL) }
+            val content = HTTPClient().use { client ->
+                runCatching {
+                    client.getString("$REMOTE_URL?amir_refresh=${System.currentTimeMillis()}")
+                }.getOrElse {
+                    client.getString(REMOTE_URL)
+                }
+            }
+
             Libbox.checkConfig(content)
 
             val profiles = ProfileManager.list()
@@ -41,23 +55,35 @@ object AmirBootstrap {
                 configFile.writeText(content)
 
                 ProfileManager.create(profile, andSelect = true)
+                changed = true
                 Log.i(TAG, "Shared configuration imported")
             } else {
                 val configFile = File(existing.typed.path)
                 configFile.parentFile?.mkdirs()
-                if (!configFile.exists() || configFile.readText() != content) {
+                changed = !configFile.exists() || configFile.readText() != content
+
+                if (changed) {
                     configFile.writeText(content)
                 }
+
                 existing.typed.remoteURL = REMOTE_URL
                 existing.typed.type = TypedProfile.Type.Remote
                 existing.typed.autoUpdate = true
                 existing.typed.autoUpdateInterval = 15
                 existing.typed.lastUpdated = Date()
                 ProfileManager.update(existing)
-                Log.i(TAG, "Shared configuration refreshed")
+
+                val selectedExists = ProfileManager.list().any { it.id == Settings.selectedProfile }
+                if (!selectedExists) {
+                    Settings.selectedProfile = existing.id
+                }
+
+                Log.i(TAG, if (changed) "Shared configuration refreshed" else "Shared configuration unchanged")
             }
         }.onFailure {
             Log.w(TAG, "Remote configuration not ready: ${it.message}")
         }
+
+        return changed
     }
 }
