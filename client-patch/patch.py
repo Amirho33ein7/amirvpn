@@ -223,4 +223,22 @@ if "viewModel.refreshRemoteProfiles()" not in text:
     )
 dashboard_screen.write_text(text, encoding="utf-8")
 
+# Make the visible profile label itself activate the same selection callback as the row.
+profile_sheet = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/ProfilePickerSheet.kt"
+text = profile_sheet.read_text(encoding="utf-8")
+label_old = """                Text(
+                    text = profile.name,
+                    style = MaterialTheme.typography.bodyMedium,
+"""
+label_new = """                Text(
+                    text = profile.name,
+                    modifier = Modifier.clickable(onClick = onSelect),
+                    style = MaterialTheme.typography.bodyMedium,
+"""
+if "modifier = Modifier.clickable(onClick = onSelect)" not in text:
+    if label_old not in text:
+        raise SystemExit("Unable to locate profile label in ProfilePickerSheet.kt")
+    text = text.replace(label_old, label_new, 1)
+profile_sheet.write_text(text, encoding="utf-8")
+
 print("Standalone AmirVPN patch ready")
