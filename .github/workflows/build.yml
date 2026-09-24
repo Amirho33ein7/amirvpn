@@ -128,13 +128,25 @@ jobs:
           adb install -r AmirVPN.apk
           adb logcat -c
           adb shell monkey -p io.nekohasekai.sfa 1 >/dev/null 2>&1
-          sleep 12
-
           adb shell dumpsys package io.nekohasekai.sfa | grep -q "AmirVPN"
-          adb logcat -d | grep -q "Bundled servers installed"
 
-          adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null
-          adb pull -q /sdcard/amirvpn-ui.xml /tmp/amirvpn-ui.xml >/dev/null
+          for i in $(seq 1 20); do
+            adb shell uiautomator dump /sdcard/amirvpn-ui.xml >/dev/null 2>&1 || true
+            adb pull -q /sdcard/amirvpn-ui.xml /tmp/amirvpn-ui.xml >/dev/null 2>&1 || true
+            if grep -q "AmirVPN • " /tmp/amirvpn-ui.xml 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          if ! grep -q "AmirVPN • " /tmp/amirvpn-ui.xml 2>/dev/null; then
+            echo "Bundled AmirVPN profile was not visible after waiting."
+            echo "--- AmirVPN logcat ---"
+            adb logcat -d | grep -iE "AmirVPN|Exception|FATAL|libbox|profile|service" | tail -n 250 || true
+            echo "--- UI XML ---"
+            cat /tmp/amirvpn-ui.xml || true
+            exit 1
+          fi
 
           python3 - <<'PY'
           import re
