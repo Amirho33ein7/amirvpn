@@ -1,12 +1,7 @@
 # AmirVPN
 
-Two Android apps:
+**AmirVPN** is the end-user Android VPN client based on sing-box and Android `VpnService`.
 
-- **AmirVPN** — end-user VPN client based on sing-box/Android VpnService.
-- **AmirVPN Manager** — management app for adding, enabling/disabling and deleting proxy share links, then publishing the active configuration.
+The app bundles the configured VLESS/Trojan server profiles locally, asks Android for VPN permission through the normal system permission flow, and starts the VPN tunnel after permission is granted.
 
-The manager publishes a generated sing-box JSON document to a shared JSON endpoint. The client loads the same endpoint as a remote profile and auto-updates it.
-
-The client build uses the open-source sing-box Android stack rather than a fake/local-only connection layer.
-
-GitHub Actions builds both APKs and publishes them as release assets.
+GitHub Actions builds a single client APK, runs an Android emulator smoke test for the permission dialog and `tun0` tunnel, publishes the APK as the current release, and removes older releases and build artifacts.
