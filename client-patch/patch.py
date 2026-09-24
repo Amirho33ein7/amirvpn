@@ -1,7 +1,9 @@
 from pathlib import Path
+import shutil
 
 root = Path("client")
 
+# Branding
 strings = root / "app/src/main/res/values/strings.xml"
 text = strings.read_text(encoding="utf-8")
 text = text.replace(
@@ -14,18 +16,18 @@ text = text.replace(
 )
 strings.write_text(text, encoding="utf-8")
 
+# Force the AmirVPN dark theme.
 color = root / "app/src/main/java/io/nekohasekai/sfa/compose/theme/Color.kt"
 text = color.read_text(encoding="utf-8")
-repl = {
+for old, new in {
     "Color(0xFFD81B60)": "Color(0xFF2F8BFF)",
     "Color(0xFFA00037)": "Color(0xFF175DB3)",
     "Color(0xFFFF5C8D)": "Color(0xFF69B5FF)",
     "Color(0xFF3498DB)": "Color(0xFF4DA3FF)",
     "Color(0xFF00A6B2)": "Color(0xFF2F8BFF)",
     "Color(0xFF2196F3)": "Color(0xFF2F8BFF)",
-}
-for a, b in repl.items():
-    text = text.replace(a, b)
+}.items():
+    text = text.replace(old, new)
 color.write_text(text, encoding="utf-8")
 
 theme = root / "app/src/main/java/io/nekohasekai/sfa/compose/theme/Theme.kt"
@@ -34,14 +36,10 @@ text = text.replace("darkTheme: Boolean = isSystemInDarkTheme(),", "darkTheme: B
 text = text.replace("dynamicColor: Boolean = true,", "dynamicColor: Boolean = false,")
 theme.write_text(text, encoding="utf-8")
 
+# Install bundled server profiles during app startup.
 app = root / "app/src/main/java/io/nekohasekai/sfa/Application.kt"
 text = app.read_text(encoding="utf-8")
 if "AmirBootstrap.ensure()" not in text:
-    text = text.replace(
-        "        GlobalScope.launch(Dispatchers.IO) {",
-        "        GlobalScope.launch(Dispatchers.IO) {",
-        1,
-    )
     text = text.replace(
         "            initialize(baseDir, workingDir, tempDir)\n            UpdateProfileWork.reconfigureUpdater()",
         "            initialize(baseDir, workingDir, tempDir)\n            AmirBootstrap.ensure()\n            UpdateProfileWork.reconfigureUpdater()",
@@ -49,34 +47,17 @@ if "AmirBootstrap.ensure()" not in text:
     )
 app.write_text(text, encoding="utf-8")
 
-build = root / "app/build.gradle.kts"
-text = build.read_text(encoding="utf-8")
-text = text.replace("compileSdk = 37", "compileSdk = 37")
-text = text.replace("compileSdkMinor = 1", "compileSdkMinor = 1")
-text = text.replace("    compileSdkMinor = 1\n", "    compileSdkMinor = 1\n")
-text = text.replace("targetSdk = 37", "targetSdk = 35")
-build.write_text(text, encoding="utf-8")
+# Copy the bundled server list and local bootstrap into the client source.
+asset_src = Path("client-patch/amirs-servers.b64")
+asset_dst = root / "app/src/main/assets/amirs-servers.b64"
+asset_dst.parent.mkdir(parents=True, exist_ok=True)
+shutil.copyfile(asset_src, asset_dst)
 
-sync_url_path = Path("sync-url.txt")
-sync_url = sync_url_path.read_text(encoding="utf-8").strip() if sync_url_path.exists() else ""
-if not sync_url:
-    raise SystemExit("sync-url.txt is empty")
+bootstrap_src = Path("client-patch/AmirBootstrap.kt")
+bootstrap_dst = root / "app/src/main/java/io/nekohasekai/sfa/AmirBootstrap.kt"
+shutil.copyfile(bootstrap_src, bootstrap_dst)
 
-dst = root / "app/src/main/java/io/nekohasekai/sfa/AmirBootstrap.kt"
-bootstrap_text = Path("client-patch/AmirBootstrap.kt").read_text(encoding="utf-8")
-import re
-bootstrap_text, count = re.subn(
-    r'const val REMOTE_URL = ".*?"',
-    f'const val REMOTE_URL = "{sync_url}"',
-    bootstrap_text,
-    count=1,
-)
-if count != 1:
-    raise SystemExit("AmirBootstrap sync URL constant not found")
-dst.write_text(bootstrap_text, encoding="utf-8")
-
-
-# Dashboard sync: bootstrap/refresh the shared remote profile on Home.
+# Home: make bundled server installation the first load and refresh path.
 dashboard_vm = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardViewModel.kt"
 text = dashboard_vm.read_text(encoding="utf-8")
 
@@ -94,13 +75,12 @@ if "private var bootstrapAttempted = false" not in text:
         1,
     )
 
-text = text.replace(
-    """        viewModelScope.launch(Dispatchers.IO) {
+old_load = """        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val profiles = ProfileManager.list()
                 val selectedId = Settings.selectedProfile
-""",
-    """        viewModelScope.launch(Dispatchers.IO) {
+"""
+new_load = """        viewModelScope.launch(Dispatchers.IO) {
             try {
                 if (!bootstrapAttempted) {
                     bootstrapAttempted = true
@@ -108,9 +88,8 @@ text = text.replace(
                 }
                 val profiles = ProfileManager.list()
                 val selectedId = Settings.selectedProfile
-""",
-    1,
-)
+"""
+text = text.replace(old_load, new_load, 1)
 
 if "Selecting a server from Home should connect" not in text:
     text = text.replace(
@@ -120,7 +99,7 @@ if "Selecting a server from Home should connect" not in text:
 """,
         """                Settings.selectedProfile = profileId
 
-                // Selecting a server from Home should connect when the tunnel is stopped.
+                // A server tap on Home follows the normal Android VPN permission flow.
                 if (_serviceStatus.value == Status.Stopped) {
                     sendGlobalEvent(UiEvent.RequestStartService)
                 }
@@ -130,26 +109,20 @@ if "Selecting a server from Home should connect" not in text:
         1,
     )
 
-if "fun refreshRemoteProfiles()" not in text:
-    text = text.replace(
-        "    fun updateProfile(profile: Profile) {\n",
-        """    fun refreshRemoteProfiles() {
+old_refresh = """    fun updateProfile(profile: Profile) {
+"""
+new_refresh = """    fun refreshRemoteProfiles() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val changed = AmirBootstrap.ensure()
                 bootstrapAttempted = true
-
-                if (changed &&
-                    _serviceStatus.value == Status.Started &&
-                    ProfileManager.list().any { it.name == "AmirVPN" && it.id == Settings.selectedProfile }
-                ) {
+                if (changed && _serviceStatus.value == Status.Started) {
                     runCatching {
                         Libbox.newStandaloneCommandClient().serviceReload()
                     }.onFailure {
                         sendGlobalEvent(UiEvent.RequestReconnectService)
                     }
                 }
-
                 loadProfiles()
             } catch (e: Exception) {
                 sendError(e)
@@ -158,76 +131,46 @@ if "fun refreshRemoteProfiles()" not in text:
     }
 
     fun updateProfile(profile: Profile) {
-""",
-        1,
-    )
+"""
+if "fun refreshRemoteProfiles()" not in text:
+    text = text.replace(old_refresh, new_refresh, 1)
 
-# Put the Profiles/servers card first on Home.
-profileFirst = """            CardGroup.Profiles,
-            CardGroup.UploadTraffic,
-            CardGroup.DownloadTraffic,
-            CardGroup.Debug,
-            CardGroup.Connections,
-            CardGroup.SystemProxy,
-            CardGroup.ClashMode,"""
-defaultOrder = """            CardGroup.UploadTraffic,
+default_order = """            CardGroup.UploadTraffic,
             CardGroup.DownloadTraffic,
             CardGroup.Debug,
             CardGroup.Connections,
             CardGroup.SystemProxy,
             CardGroup.ClashMode,
             CardGroup.Profiles,"""
-text = text.replace(defaultOrder, profileFirst, 2)
-
+profiles_first = """            CardGroup.Profiles,
+            CardGroup.UploadTraffic,
+            CardGroup.DownloadTraffic,
+            CardGroup.Debug,
+            CardGroup.Connections,
+            CardGroup.SystemProxy,
+            CardGroup.ClashMode,"""
+text = text.replace(default_order, profiles_first, 2)
 dashboard_vm.write_text(text, encoding="utf-8")
 
 dashboard_screen = root / "app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/DashboardScreen.kt"
 text = dashboard_screen.read_text(encoding="utf-8")
-
 if "import androidx.compose.runtime.LaunchedEffect" not in text:
     text = text.replace(
         "import androidx.compose.runtime.Composable\n",
         "import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.LaunchedEffect\n",
         1,
     )
-
 if "viewModel.refreshRemoteProfiles()" not in text:
     text = text.replace(
         "    val uiState by viewModel.uiState.collectAsState()\n",
         """    val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(Unit) {
-        while (true) {
-            viewModel.refreshRemoteProfiles()
-            kotlinx.coroutines.delay(30_000)
-        }
+        viewModel.refreshRemoteProfiles()
     }
 """,
         1,
     )
-
-if "Icons.Default.Refresh" not in text:
-    text = text.replace(
-        "import androidx.compose.material.icons.filled.MoreVert\n",
-        "import androidx.compose.material.icons.filled.MoreVert\nimport androidx.compose.material.icons.filled.Refresh\n",
-        1,
-    )
-    text = text.replace(
-        """            actions = {
-                Box {
-""",
-        """            actions = {
-                IconButton(onClick = { viewModel.refreshRemoteProfiles() }) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "تازه‌سازی سرورها",
-                    )
-                }
-                Box {
-""",
-        1,
-    )
-
 dashboard_screen.write_text(text, encoding="utf-8")
 
-print("Dashboard/Home patch ready")
+print("Standalone AmirVPN patch ready")
